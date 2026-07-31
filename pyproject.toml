@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "encrypta3"
+version = "0.1.0"
+description = "Cofre Criptográfico usando Token A3 e criptografia híbrida AES-GCM"
+authors = [{name = "Diego Ribeiro de Souza"}]
+dependencies = [
+    "cryptography",
+    "python-pkcs11",
+    "rich",
+    "questionary"
+]
+
+[project.scripts]
+encrypta3 = "encrypta3.tui:run"
