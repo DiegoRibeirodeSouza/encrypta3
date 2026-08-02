@@ -21,7 +21,7 @@ def run():
             console.print("[red]Caminho inválido.[/red]\n")
             continue
             
-        is_cofre = target.endswith('.ea3')
+        is_cofre = vault.is_vault(target)
         
         if is_cofre:
             action = "Destrancar (Descriptografar)"
@@ -53,8 +53,14 @@ def run():
                 continue
                 
             usar_senha = questionary.confirm("Deseja configurar uma Senha de Emergência (Recomendado caso perca o Token)?").ask()
+            pim = 1
             if usar_senha:
                 recovery_password = questionary.password("Digite a Senha de Emergência:").ask()
+                pim_str = questionary.text("Digite o Nível de Paranoia PIM (1 = Padrão, 10 = Demorado):", default="1").ask()
+                try:
+                    pim = int(pim_str)
+                except ValueError:
+                    pim = 1
                 
             wipe_original_choice = questionary.confirm("Deseja destruir o arquivo/pasta original de forma segura (Wipe) após trancar?").ask()
             
@@ -91,7 +97,7 @@ def run():
         try:
             if action == "Trancar (Criptografar)":
                 out_path = target + stealth_ext
-                vault.encrypt_path(target, out_path, pkcs11_lib, pin, recovery_password, wipe_original=wipe_original_choice, stealth_mode=stealth_mode_choice)
+                vault.encrypt_path(target, out_path, pkcs11_lib, pin, recovery_password, wipe_original=wipe_original_choice, stealth_mode=stealth_mode_choice, pim=pim)
                 console.print(f"\n[bold green]Sucesso![/bold green] Arquivo trancado gerado: [bold]{out_path}[/bold]")
             else:
                 out_dir = os.path.dirname(target)

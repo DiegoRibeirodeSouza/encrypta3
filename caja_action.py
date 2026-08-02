@@ -49,7 +49,7 @@ def main():
 
     # Check if we are encrypting or decrypting based on the first file
     # We assume batch operations share the same action type
-    is_encrypting = not paths[0].endswith('.ea3')
+    is_encrypting = not vault.is_vault(paths[0])
 
     pkcs11_lib = vault.auto_discover_pkcs11()
 
@@ -62,10 +62,17 @@ def main():
             return
             
         use_recovery = ask_question("Deseja configurar uma Senha de Emergência para esses arquivos? (Recomendado caso perca o Token A3)")
+        pim = 1
         if use_recovery:
             recovery_password = get_password("Digite a Senha de Emergência:")
             if not recovery_password:
                 return
+                
+            pim_str = get_text("Digite o Nível de Paranoia PIM (1 = Padrão, 10 = Demorado):")
+            try:
+                pim = int(pim_str) if pim_str else 1
+            except ValueError:
+                pim = 1
                 
         stealth_mode = ask_question("Deseja ativar o Modo Furtivo (Sem assinatura ENCA)?")
         stealth_ext = ".ea3"
@@ -97,13 +104,13 @@ def main():
         if not os.path.exists(target):
             continue
 
-        is_cofre = target.endswith('.ea3')
+        is_cofre = vault.is_vault(target)
         filename = os.path.basename(target)
 
         try:
             if not is_cofre:
                 out_path = target + stealth_ext
-                vault.encrypt_path(target, out_path, pkcs11_lib, pin, recovery_password, stealth_mode=stealth_mode)
+                vault.encrypt_path(target, out_path, pkcs11_lib, pin, recovery_password, stealth_mode=stealth_mode, pim=pim)
                 success_msgs.append(f"🔒 Trancado: {os.path.basename(out_path)}")
             else:
                 out_dir = os.path.dirname(target)

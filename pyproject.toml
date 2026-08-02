@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Cofre Criptográfico usando Token A3 e criptografia híbrida AES-GCM"
 authors = [{name = "Diego Ribeiro de Souza"}]
 dependencies = [
+    "pynacl",
     "cryptography",
     "python-pkcs11",
     "rich",
