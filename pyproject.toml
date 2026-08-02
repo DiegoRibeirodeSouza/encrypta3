@@ -11,7 +11,8 @@ dependencies = [
     "cryptography",
     "python-pkcs11",
     "rich",
-    "questionary"
+    "questionary",
+    "argon2-cffi"
 ]
 
 [project.scripts]

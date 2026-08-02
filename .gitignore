@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Arquivos de Cofre
+*.ea3
+*.cofre
+
+# Ícone antigo
+icon_old.png
+test_file*
