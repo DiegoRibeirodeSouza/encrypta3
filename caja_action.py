@@ -62,17 +62,11 @@ def main():
             pin = get_password("Insira o PIN do Token A3 (SafeSign):")
             
         use_recovery = ask_question("Deseja configurar uma Senha (Emergência ou Principal, caso não use Token)?")
-        pim = 1
+        pim = 30 # Padronizado para PIM 30 (~1.5 a 2s no Argon2)
         if use_recovery:
             recovery_password = get_password("Digite a Senha:")
             if not recovery_password:
                 return
-                
-            pim_str = get_text("Digite o Nível de Paranoia PIM (1 = Padrão, 10 = Demorado):")
-            try:
-                pim = int(pim_str) if pim_str else 1
-            except ValueError:
-                pim = 1
                 
         if not pin and not recovery_password:
             show_message("Você deve proteger o cofre com o Token A3 ou com uma Senha!", True)

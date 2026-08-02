@@ -53,15 +53,10 @@ def run():
                 pin = questionary.password("Digite o PIN (senha) do seu Token A3:").ask()
                 
             usar_senha = questionary.confirm("Deseja configurar uma Senha (de Emergência ou Principal, caso não use o Token)?").ask()
-            pim = 1
+            pim = 30 # Padronizado para PIM 30 (aprox. ~1.5 a 2 segundos de cálculo Argon2)
             recovery_password = None
             if usar_senha:
                 recovery_password = questionary.password("Digite a Senha:").ask()
-                pim_str = questionary.text("Digite o Nível de Paranoia PIM (1 = Padrão, 10 = Demorado):", default="1").ask()
-                try:
-                    pim = int(pim_str)
-                except ValueError:
-                    pim = 1
                     
             if not pin and not recovery_password:
                 console.print("[bold red]Erro:[/bold red] Você deve proteger o cofre com o Token A3 ou com uma Senha!")
