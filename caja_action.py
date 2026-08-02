@@ -57,14 +57,14 @@ def main():
     recovery_password = None
 
     if is_encrypting:
-        pin = get_password("Insira o PIN do Token A3 (SafeSign):")
-        if not pin:
-            return
+        use_token = ask_question("Deseja usar o Token A3 para trancar os arquivos?")
+        if use_token:
+            pin = get_password("Insira o PIN do Token A3 (SafeSign):")
             
-        use_recovery = ask_question("Deseja configurar uma Senha de Emergência para esses arquivos? (Recomendado caso perca o Token A3)")
+        use_recovery = ask_question("Deseja configurar uma Senha (Emergência ou Principal, caso não use Token)?")
         pim = 1
         if use_recovery:
-            recovery_password = get_password("Digite a Senha de Emergência:")
+            recovery_password = get_password("Digite a Senha:")
             if not recovery_password:
                 return
                 
@@ -73,6 +73,10 @@ def main():
                 pim = int(pim_str) if pim_str else 1
             except ValueError:
                 pim = 1
+                
+        if not pin and not recovery_password:
+            show_message("Você deve proteger o cofre com o Token A3 ou com uma Senha!", True)
+            return
                 
         stealth_mode = ask_question("Deseja ativar o Modo Furtivo (Sem assinatura ENCA)?")
         stealth_ext = ".ea3"

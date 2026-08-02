@@ -47,20 +47,25 @@ def run():
                 console.print("[yellow]Aviso: Nenhum driver PKCS#11 (Smartcard) foi detectado automaticamente no sistema.[/yellow]")
                 pkcs11_lib = questionary.text("Por favor, informe o caminho do driver (ex: /usr/lib/libaetpkss.so.3):").ask()
                 
-            pin = questionary.password("Digite o PIN (senha) do seu Token A3:").ask()
-            if not pin:
-                console.print("")
-                continue
+            usar_token = questionary.confirm("Deseja usar o Token A3 para trancar este cofre?").ask()
+            pin = None
+            if usar_token:
+                pin = questionary.password("Digite o PIN (senha) do seu Token A3:").ask()
                 
-            usar_senha = questionary.confirm("Deseja configurar uma Senha de Emergência (Recomendado caso perca o Token)?").ask()
+            usar_senha = questionary.confirm("Deseja configurar uma Senha (de Emergência ou Principal, caso não use o Token)?").ask()
             pim = 1
+            recovery_password = None
             if usar_senha:
-                recovery_password = questionary.password("Digite a Senha de Emergência:").ask()
+                recovery_password = questionary.password("Digite a Senha:").ask()
                 pim_str = questionary.text("Digite o Nível de Paranoia PIM (1 = Padrão, 10 = Demorado):", default="1").ask()
                 try:
                     pim = int(pim_str)
                 except ValueError:
                     pim = 1
+                    
+            if not pin and not recovery_password:
+                console.print("[bold red]Erro:[/bold red] Você deve proteger o cofre com o Token A3 ou com uma Senha!")
+                continue
                 
             wipe_original_choice = questionary.confirm("Deseja destruir o arquivo/pasta original de forma segura (Wipe) após trancar?").ask()
             
