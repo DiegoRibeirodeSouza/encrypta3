@@ -57,6 +57,11 @@ def run():
                 recovery_password = questionary.password("Digite a Senha de Emergência:").ask()
                 
             wipe_original_choice = questionary.confirm("Deseja destruir o arquivo/pasta original de forma segura (Wipe) após trancar?").ask()
+            
+            stealth_mode_choice = questionary.confirm("Deseja ativar o Modo Furtivo (Negabilidade Plausível - sem assinatura ENCA)?").ask()
+            stealth_ext = ".ea3"
+            if stealth_mode_choice:
+                stealth_ext = questionary.text("Qual extensão disfarçada deseja usar? (Ex: .mp4, .dat) ou deixe em branco para nenhuma:").ask()
                 
             console.print(f"\n[yellow]Acessando Token A3 e processando criptografia...[/yellow]")
         else:
@@ -85,8 +90,8 @@ def run():
         
         try:
             if action == "Trancar (Criptografar)":
-                out_path = target + '.ea3'
-                vault.encrypt_path(target, out_path, pkcs11_lib, pin, recovery_password, wipe_original=wipe_original_choice)
+                out_path = target + stealth_ext
+                vault.encrypt_path(target, out_path, pkcs11_lib, pin, recovery_password, wipe_original=wipe_original_choice, stealth_mode=stealth_mode_choice)
                 console.print(f"\n[bold green]Sucesso![/bold green] Arquivo trancado gerado: [bold]{out_path}[/bold]")
             else:
                 out_dir = os.path.dirname(target)

@@ -7,9 +7,16 @@ from pkcs11 import KeyType, ObjectClass, Mechanism
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import math
 import shutil
+import unicodedata
+import io
 
 try:
     from argon2.low_level import hash_secret_raw, Type as ArgonType
+except ImportError:
+    pass
+
+try:
+    from reedsolo import RSCodec
 except ImportError:
     pass
 
@@ -30,6 +37,7 @@ def _secure_wipe(path: str):
 
 
 MAGIC = b"ENCA4"
+MAGIC_ENCA5 = b"ENCA5"
 CHUNK_SIZE = 64 * 1024
 
 def _get_keys(session):
@@ -59,7 +67,7 @@ def auto_discover_pkcs11() -> str:
             return p
     return None
 
-def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, recovery_password: str = None, wipe_original: bool = False):
+def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, recovery_password: str = None, wipe_original: bool = False, stealth_mode: bool = False):
     is_dir = os.path.isdir(input_path)
     target_path = input_path
     temp_zip = None
@@ -100,6 +108,7 @@ def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, r
     nonce_pwd = b""
     
     if has_pwd:
+        recovery_password = unicodedata.normalize('NFC', recovery_password)
         salt = os.urandom(16)
         derived_key = hash_secret_raw(
             secret=recovery_password.encode('utf-8'),
@@ -114,26 +123,40 @@ def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, r
     aesgcm_file = AESGCM(aes_key)
     nonce_file = os.urandom(12)
     
+    # Monta o cabecalho bruto para o ENCA5
+    header_bytes = bytearray()
+    header_bytes.extend(struct.pack('>B', 1 if is_dir else 0))
+    header_bytes.extend(struct.pack('>B', has_pwd))
+    
+    header_bytes.extend(struct.pack('>H', len(encrypted_aes_key_token)))
+    if encrypted_aes_key_token:
+        header_bytes.extend(encrypted_aes_key_token)
+        
+    if has_pwd:
+        header_bytes.extend(salt)
+        header_bytes.extend(nonce_pwd)
+        header_bytes.extend(struct.pack('>H', len(encrypted_aes_key_pwd)))
+        header_bytes.extend(encrypted_aes_key_pwd)
+        
+    header_bytes.extend(nonce_file)
+    
+    target_size = os.path.getsize(target_path)
+    total_chunks = math.ceil(target_size / CHUNK_SIZE) if target_size > 0 else 0
+    header_bytes.extend(struct.pack('>I', total_chunks))
+
+    if len(header_bytes) > 512:
+        raise Exception("O cabeçalho gerado é grande demais.")
+        
+    header_bytes = header_bytes.ljust(512, b'\x00')
+    
+    rsc = RSCodec(32)
+    encoded_header = rsc.encode(header_bytes) # Deve gerar 608 bytes
+    
     with open(output_path, 'wb') as f_out:
-        f_out.write(MAGIC)
-        f_out.write(struct.pack('>B', 1 if is_dir else 0))
-        f_out.write(struct.pack('>B', has_pwd))
+        if not stealth_mode:
+            f_out.write(MAGIC_ENCA5)
         
-        f_out.write(struct.pack('>H', len(encrypted_aes_key_token)))
-        if encrypted_aes_key_token:
-            f_out.write(encrypted_aes_key_token)
-            
-        if has_pwd:
-            f_out.write(salt)
-            f_out.write(nonce_pwd)
-            f_out.write(struct.pack('>H', len(encrypted_aes_key_pwd)))
-            f_out.write(encrypted_aes_key_pwd)
-            
-        f_out.write(nonce_file)
-        
-        target_size = os.path.getsize(target_path)
-        total_chunks = math.ceil(target_size / CHUNK_SIZE) if target_size > 0 else 0
-        f_out.write(struct.pack('>I', total_chunks))
+        f_out.write(encoded_header)
         
         chunk_idx = 0
         with open(target_path, 'rb') as f_in:
@@ -142,7 +165,7 @@ def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, r
                 if not chunk:
                     break
                 current_nonce = nonce_file[:8] + struct.pack('>I', chunk_idx)
-                enc_chunk = aesgcm_file.encrypt(current_nonce, chunk, None)
+                enc_chunk = aesgcm_file.encrypt(current_nonce, chunk, bytes(header_bytes))
                 f_out.write(struct.pack('>I', len(enc_chunk)))
                 f_out.write(enc_chunk)
                 chunk_idx += 1
@@ -169,28 +192,72 @@ def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, r
 
 def decrypt_path(input_path: str, output_dir: str, pkcs11_lib: str = None, pin: str = None, recovery_password: str = None) -> str:
     with open(input_path, 'rb') as f:
-        magic = f.read(5)
-        if magic != MAGIC:
-            raise Exception("Arquivo não é um cofre EncryptA4 válido.")
+        magic_check = f.read(5)
+        is_enca5 = False
+        is_enca4 = False
+        is_stealth = False
+        
+        if magic_check == MAGIC_ENCA5:
+            is_enca5 = True
+        elif magic_check == MAGIC:
+            is_enca4 = True
+        else:
+            f.seek(0)
+            is_stealth = True
             
-        is_dir = struct.unpack('>B', f.read(1))[0] == 1
-        has_pwd = struct.unpack('>B', f.read(1))[0] == 1
-        
-        key_len = struct.unpack('>H', f.read(2))[0]
-        encrypted_aes_key_token = f.read(key_len) if key_len > 0 else b""
-        
-        salt = b""
-        nonce_pwd = b""
-        encrypted_aes_key_pwd = b""
-        if has_pwd:
-            salt = f.read(16)
-            nonce_pwd = f.read(12)
-            pwd_key_len = struct.unpack('>H', f.read(2))[0]
-            encrypted_aes_key_pwd = f.read(pwd_key_len)
+        if is_enca4:
+            is_dir = struct.unpack('>B', f.read(1))[0] == 1
+            has_pwd = struct.unpack('>B', f.read(1))[0] == 1
             
-        nonce_file = f.read(12)
-        
-        total_chunks = struct.unpack('>I', f.read(4))[0]
+            key_len = struct.unpack('>H', f.read(2))[0]
+            encrypted_aes_key_token = f.read(key_len) if key_len > 0 else b""
+            
+            salt = b""
+            nonce_pwd = b""
+            encrypted_aes_key_pwd = b""
+            if has_pwd:
+                salt = f.read(16)
+                nonce_pwd = f.read(12)
+                pwd_key_len = struct.unpack('>H', f.read(2))[0]
+                encrypted_aes_key_pwd = f.read(pwd_key_len)
+                
+            nonce_file = f.read(12)
+            total_chunks = struct.unpack('>I', f.read(4))[0]
+            aad = None
+        else:
+            if is_stealth:
+                encoded_header = f.read(608)
+            else:
+                encoded_header = f.read(608)
+                
+            if len(encoded_header) < 608:
+                raise Exception("Arquivo corrompido ou não é um cofre válido.")
+                
+            rsc = RSCodec(32)
+            try:
+                header_bytes_decoded = rsc.decode(encoded_header)[0]
+            except Exception:
+                raise Exception("Falha de integridade no cabeçalho (Bit rot irreparável ou não é um cofre Stealth válido).")
+                
+            aad = bytes(header_bytes_decoded)
+            
+            hb = io.BytesIO(header_bytes_decoded)
+            is_dir = struct.unpack('>B', hb.read(1))[0] == 1
+            has_pwd = struct.unpack('>B', hb.read(1))[0] == 1
+            key_len = struct.unpack('>H', hb.read(2))[0]
+            encrypted_aes_key_token = hb.read(key_len) if key_len > 0 else b""
+            
+            salt = b""
+            nonce_pwd = b""
+            encrypted_aes_key_pwd = b""
+            if has_pwd:
+                salt = hb.read(16)
+                nonce_pwd = hb.read(12)
+                pwd_key_len = struct.unpack('>H', hb.read(2))[0]
+                encrypted_aes_key_pwd = hb.read(pwd_key_len)
+                
+            nonce_file = hb.read(12)
+            total_chunks = struct.unpack('>I', hb.read(4))[0]
         
         aes_key = None
         
@@ -206,6 +273,7 @@ def decrypt_path(input_path: str, output_dir: str, pkcs11_lib: str = None, pin: 
                 _, priv_key = _get_keys(session)
                 aes_key = priv_key.decrypt(encrypted_aes_key_token, mechanism=Mechanism.RSA_PKCS)
         elif recovery_password and has_pwd:
+            recovery_password = unicodedata.normalize('NFC', recovery_password)
             derived_key = hash_secret_raw(
                 secret=recovery_password.encode('utf-8'),
                 salt=salt,
@@ -220,6 +288,8 @@ def decrypt_path(input_path: str, output_dir: str, pkcs11_lib: str = None, pin: 
         aesgcm_file = AESGCM(aes_key)
         
         base_name = os.path.basename(input_path).replace('.ea3', '')
+        if is_stealth and not base_name.endswith('.ea3'):
+            base_name += "_decrypted"
         
         temp_out = None
         if is_dir:
@@ -239,7 +309,7 @@ def decrypt_path(input_path: str, output_dir: str, pkcs11_lib: str = None, pin: 
                     raise Exception("Arquivo truncado ou corrompido! Dados ausentes no bloco.")
                 
                 current_nonce = nonce_file[:8] + struct.pack('>I', chunk_idx)
-                plaintext_chunk = aesgcm_file.decrypt(current_nonce, enc_chunk, None)
+                plaintext_chunk = aesgcm_file.decrypt(current_nonce, enc_chunk, aad)
                 f_out.write(plaintext_chunk)
                 
     if is_dir and temp_out:

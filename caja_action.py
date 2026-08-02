@@ -25,6 +25,16 @@ def get_password(text):
     except subprocess.CalledProcessError:
         return None
 
+def get_text(text):
+    try:
+        result = subprocess.run(
+            ['zenity', '--entry', '--title=Cofre EncryptA3', f'--text={text}'],
+            capture_output=True, text=True, check=True
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return None
+
 def show_message(text, is_error=False):
     msg_type = '--error' if is_error else '--info'
     subprocess.run(['zenity', msg_type, '--title=EncryptA3', f'--text={text}'])
@@ -56,6 +66,15 @@ def main():
             recovery_password = get_password("Digite a Senha de Emergência:")
             if not recovery_password:
                 return
+                
+        stealth_mode = ask_question("Deseja ativar o Modo Furtivo (Sem assinatura ENCA)?")
+        stealth_ext = ".ea3"
+        if stealth_mode:
+            ext = get_text("Qual extensão falsa você deseja usar? (Ex: .mp4, .dat) ou cancele para não usar extensão.")
+            if ext is not None:
+                stealth_ext = ext
+            else:
+                stealth_ext = ""
     else:
         # Decrypting
         use_token = ask_question("Deseja usar o Token A3 para destrancar?\n(Clique em 'Não' para usar a Senha de Emergência)")
@@ -83,9 +102,9 @@ def main():
 
         try:
             if not is_cofre:
-                out_path = target + '.ea3'
-                vault.encrypt_path(target, out_path, pkcs11_lib, pin, recovery_password)
-                success_msgs.append(f"🔒 Trancado: {filename}.ea3")
+                out_path = target + stealth_ext
+                vault.encrypt_path(target, out_path, pkcs11_lib, pin, recovery_password, stealth_mode=stealth_mode)
+                success_msgs.append(f"🔒 Trancado: {os.path.basename(out_path)}")
             else:
                 out_dir = os.path.dirname(target)
                 res_path = vault.decrypt_path(target, out_dir, pkcs11_lib, pin, recovery_password)
