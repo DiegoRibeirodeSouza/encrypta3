@@ -4,49 +4,42 @@
 
 # EncryptA3 (Cofre ICP-Brasil) 🔒
 
-O **EncryptA3** é uma ferramenta de altíssima segurança projetada para garantir o sigilo absoluto de documentos e pastas sensíveis utilizando **Criptografia Híbrida**. Ele atua tanto como um utilitário de terminal (TUI) quanto como uma **Extensão Nativa do Gerenciador de Arquivos (Caja)**.
+O **EncryptA3** é uma ferramenta de altíssima segurança projetada para garantir o sigilo absoluto de documentos e pastas sensíveis utilizando **Criptografia Híbrida Avançada**. Ele atua como um aplicativo com Interface Gráfica moderna (GTK3), utilitário de terminal (TUI) e **Extensão Nativa do Gerenciador de Arquivos (Caja)**.
 
-Ao invés de depender de senhas fracas que podem ser vazadas, o EncryptA3 utiliza o hardware criptográfico do seu **Token A3 (Padrão ICP-Brasil OAB/e-CPF)** para trancar e destrancar uma chave de grau militar (AES-GCM).
+Ao invés de depender de senhas fracas que podem ser adivinhadas, o EncryptA3 utiliza o hardware criptográfico do seu **Token A3 (Padrão ICP-Brasil OAB/e-CPF)** para trancar e destrancar uma dupla camada de chaves de grau militar (AES-GCM + XSalsa20).
 
 ## 🚀 Como Funciona a Criptografia Híbrida?
-1. **Trancar (Criptografar):** O sistema gera uma chave simétrica descartável super-rápida (AES-256) e criptografa seu documento ou pasta em milissegundos. Em seguida, a **Chave Pública** (RSA) do seu Token A3 é usada para "trancar" essa chave AES. O resultado é um arquivo selado com a extensão `.ea3`.
-2. **Destrancar (Decifrar):** Para abrir o cofre, você insere seu Token A3 na porta USB e digita seu PIN. A sua **Chave Privada** (que nunca sai do chip físico) destranca a chave AES interna, recuperando instantaneamente seus documentos originais.
+1. **Trancar (Criptografar):** O sistema gera chaves simétricas descartáveis super-rápidas e cifra seu documento ou pasta em milissegundos. Em seguida, a **Chave Pública** (RSA) do seu Token A3 é usada para encapsular essas chaves dentro de um cofre matemático. O resultado é um arquivo blindado e selado (extensão padrão `.ea3`).
+2. **Destrancar (Decifrar):** Para abrir o cofre, você insere seu Token A3 na porta USB e digita seu PIN. A sua **Chave Privada** (que é fisicamente impossível de ser extraída do chip do pendrive) destranca o cofre interno, recuperando os documentos originais perfeitamente intactos.
 
-Mesmo se o seu computador for roubado, invadido ou hackeado, os arquivos estarão matematicamente inacessíveis sem a presença física do seu Token A3 e da sua senha.
+Mesmo se o seu computador for roubado, invadido ou confiscado, os arquivos estarão matematicamente inacessíveis sem a presença física do seu Token A3 ICP-Brasil e do PIN. Zero chance de ataque de dicionário.
 
 ## ✨ Funcionalidades
-- **Criptografia de Pastas e Arquivos:** Se você arrastar uma pasta inteira, o sistema compacta, cifra e gera um arquivo `.ea3` único.
-- **Prevenção contra Truncamento (AAD):** O sistema bloqueia corrupções parciais no pacote final através do algoritmo AES-GCM.
-- **Wipe Opcional:** Você pode escolher destruir o arquivo original (*secure wipe*) após trancá-lo com sucesso, mitigando recuperações do documento desprotegido. 
-  > ⚠️ **Aviso de Segurança:** Em SSDs modernos com *wear-leveling*, a técnica de sobrescrever o arquivo (wipe) não garante 100% de exclusão física dos dados originais.
-- **Streaming Criptográfico de Alta Performance:** Suporte para arquivos gigantes (Gigabytes ou Terabytes) com baixíssimo consumo de memória RAM, processando dados em blocos.
-- **Senha Mestra de Emergência (Cold Storage):** Possibilidade de cadastrar uma senha ultra-segura (protegida pelo algoritmo Argon2) como plano de contingência caso o Token A3 seja fisicamente perdido ou danificado.
-- **Auto-Detecção de Drivers PKCS#11:** Não é mais necessário configurar o caminho do driver do Smartcard manualmente no Linux (detecção automática para SafeSign, OpenSC, eTPkcs11, etc).
-- **Integração Nativa com o Desktop (Caja):** Tranque e destranque arquivos diretamente pelo menu principal de clique-direito do seu gerenciador de arquivos (Caja/MATE), sem precisar abrir o terminal.
-- **Interface TUI Elegante:** Interface interativa baseada em terminal (com bibliotecas `rich` e `questionary`), suporte a arrastar-e-soltar e fluxos contínuos de operação.
+- **Interface Gráfica Completa (GUI):** Interface GTK3 que se integra nativamente ao visual do sistema Linux (MATE/GNOME). Suporte a arrastar-e-soltar de arquivos.
+- **Modo Furtivo (Stealth Mode):** Disfarce seus arquivos criptografados removendo a extensão `.ea3` e aplicando extensões falsas comuns (ex: `.mp4`, `.pdf`). Sem metadados óbvios e completamente indistinguíveis de ruído branco, negando a existência da criptografia para xeretas.
+- **Autenticação Dupla Cooperativa:** Quer se precaver contra a queima ou perda física do Token? Na hora de cifrar, você pode empacotar as chaves usando o Token A3 **E** uma Senha de Recuperação super forte simultaneamente (com hash protegido via Argon2). Na hora de decifrar, você escolhe qual das duas chaves quer usar.
+- **Criptografia de Alta Performance em Streaming:** Suporte para arquivos e pastas gigantes (Gigabytes ou Terabytes) com baixíssimo consumo de memória RAM, fatiando os dados. O cabeçalho usa algoritmos de correção de erro (Reed-Solomon) para resistir a corrupções de bit.
+- **Wipe Opcional de Arquivos Originais:** Destrua o arquivo não-criptografado da face da Terra (*secure wipe*) assim que o cofre for lacrado. *(Aviso: SSDs modernos com wear-leveling podem mitigar técnicas de wiping lógico).*
+- **Compatibilidade Inteligente de Hardware:** Auto-detecta falhas de implementação no driver do fabricante do Smartcard (como a falta de suporte a `RSA_PKCS_OAEP`) e cai graciosamente para o padrão universal suportado `RSA_PKCS_1.5` de forma segura. Detecta os drivers PKCS#11 (SafeSign, OpenSC, eTPkcs11) automaticamente.
 
 ## 🛠️ Requisitos
-- Linux (testado em Ubuntu/GNOME/MATE)
+- Linux (testado em Debian Trixie/MATE e Ubuntu/GNOME)
 - Python 3.10+
-- Driver PKCS#11 Instalado (Ex: SafeSign `libaetpkss.so.3`)
-- Token A3 (OAB, e-CPF, e-CNPJ) conectado.
+- Bibliotecas do Sistema para PKCS11 (SafeSign / OpenSC) e GTK.
+- Token A3 (OAB, e-CPF, e-CNPJ) plugado na USB.
 
 ## 💻 Instalação
 
 ```bash
-# Clone o diretório e entre na pasta
+# Entre na pasta do projeto
 cd ~/Documentos/encrypta3
 
-# Crie e ative o ambiente virtual
-python3 -m venv venv
-source venv/bin/activate
-
-# Instale as dependências
-pip install .
+# Instale as dependências globalmente (em ambientes externos Debian, use pip --break-system-packages se não usar venv)
+pip install cryptography pynacl argon2-cffi reedsolo python-pkcs11 PyGObject
 ```
 
 ### Habilitando a Extensão no Gerenciador de Arquivos (Caja)
-Para que a opção de trancar/destrancar apareça no botão direito do mouse, copie a extensão para a pasta do Caja:
+Para ter um menu de clique-direito do mouse para trancar/destrancar pelo navegador de arquivos:
 ```bash
 mkdir -p ~/.local/share/caja-python/extensions/
 cp caja_action.py ~/.local/share/caja-python/extensions/
@@ -55,27 +48,24 @@ caja -q  # Reinicia o Caja para aplicar as mudanças
 
 ## ▶️ Como Usar
 
-### Via Interface Gráfica (Caja)
-A forma mais prática de utilizar o EncryptA3 no dia a dia é direto pelo seu gerenciador de arquivos:
+### Via Interface Gráfica (Aplicativo Standalone)
+Rode a interface principal para ter acesso ao arrastar-e-soltar e ao **Modo Furtivo**:
+```bash
+PYTHONPATH=/home/diego/Documentos/encrypta3 python3 -m encrypta3.gui.app
+```
+
+### Via Menu de Contexto (Caja)
 1. Navegue até o arquivo ou pasta que deseja proteger.
 2. Clique com o **botão direito** do mouse sobre o arquivo.
 3. No menu principal, clique na opção relacionada ao Cofre A3.
-4. Uma caixa segura nativa do Debian aparecerá. Digite o seu PIN e pronto! 
-
-*Nota: Ao criptografar um documento pela interface gráfica, o sistema também perguntará se você quer configurar a Senha de Emergência para formar uma co-assinatura (Token + Argon2).*
+4. Uma caixa segura nativa do sistema aparecerá. Digite o seu PIN e aguarde a mágica!
 
 ### Via Terminal (TUI)
-Pelo terminal, com o ambiente virtual ativado, basta rodar:
+Pela linha de comando, basta executar:
 ```bash
-encrypta3
+PYTHONPATH=/home/diego/Documentos/encrypta3 python3 -m encrypta3.tui
 ```
-A interface interativa solicitará o caminho do arquivo (você pode apenas arrastar o arquivo do seu gerenciador e soltar na tela preta) e guiará você pelo resto do processo.
-
-## 🔍 Inspeção e Auditoria
-Caso precise validar os metadados de um arquivo criptografado (como descobrir se o arquivo exige senha de emergência ou é diretório) sem precisar inserir a senha ou o token, você pode auditar o cabeçalho usando o inspetor de cofres:
-```bash
-python3 inspect_vault.py arquivo.ea3
-```
+A interface de texto guiará você pelo resto do processo usando menus no teclado.
 
 ---
 *Desenvolvido por Diego Ribeiro de Souza.*

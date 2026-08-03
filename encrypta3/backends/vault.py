@@ -73,9 +73,12 @@ def auto_discover_pkcs11() -> str:
     return None
 
 def get_nonce(base_nonce, idx, length):
-    return (int.from_bytes(base_nonce, 'big') + idx).to_bytes(length, 'big')
+    try:
+        return (int.from_bytes(base_nonce, 'big') + idx).to_bytes(length, 'big')
+    except OverflowError:
+        raise Exception(f"Tamanho do arquivo excede o limite seguro para criptografia (Overflow de nonce de {length} bytes).")
 
-def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, recovery_password: str = None, wipe_original: bool = False, stealth_mode: bool = False, pim: int = 1):
+def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, recovery_password: str = None, wipe_original: bool = False, stealth_mode: bool = False, pim: int = 1, progress_callback=None):
     is_dir = os.path.isdir(input_path)
     target_path = input_path
     temp_zip = None
@@ -109,7 +112,9 @@ def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, r
             pub_key, _ = _get_keys(session)
             try:
                 encrypted_keys_token = pub_key.encrypt(combined_keys, mechanism=Mechanism.RSA_PKCS_OAEP)
-            except (pkcs11.exceptions.MechanismInvalid, pkcs11.exceptions.DataInvalid):
+            except (pkcs11.exceptions.MechanismInvalid, pkcs11.exceptions.DataInvalid, pkcs11.exceptions.DeviceError):
+                import sys
+                print("Aviso: Token não suporta OAEP, realizando fallback para RSA_PKCS.", file=sys.stderr)
                 encrypted_keys_token = pub_key.encrypt(combined_keys, mechanism=Mechanism.RSA_PKCS)
 
     has_pwd = 1 if recovery_password else 0
@@ -192,6 +197,8 @@ def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, r
                 f_out.write(struct.pack('>I', len(c2)))
                 f_out.write(c2)
                 chunk_idx += 1
+                if progress_callback and total_chunks > 0:
+                    progress_callback(chunk_idx / total_chunks)
                 
     if temp_zip and os.path.exists(temp_zip):
         _secure_wipe(temp_zip)
@@ -213,168 +220,98 @@ def encrypt_path(input_path: str, output_path: str, pkcs11_lib: str, pin: str, r
         else:
             _secure_wipe(input_path)
 
-def decrypt_path(input_path: str, output_dir: str, pkcs11_lib: str = None, pin: str = None, recovery_password: str = None) -> str:
+def decrypt_path(input_path: str, output_dir: str, pkcs11_lib: str = None, pin: str = None, recovery_password: str = None, progress_callback=None) -> str:
     with open(input_path, 'rb') as f:
         magic_check = f.read(5)
         f.seek(0)
         
-        is_enca6 = False
-        is_enca5 = False
-        is_enca4 = False
         is_stealth = False
         
         if magic_check == MAGIC_ENCA6:
-            is_enca6 = True
             encoded_header = f.read(608)
-        elif magic_check == MAGIC_ENCA5:
-            is_enca5 = True
-            encoded_header = f.read(608)
-        elif magic_check == MAGIC:
-            is_enca4 = True
-            f.read(5)
+        elif magic_check in (MAGIC, MAGIC_ENCA5):
+            raise Exception("Formatos antigos (ENCA4/ENCA5) não são mais suportados.")
         else:
             is_stealth = True
             encoded_header = f.read(608)
             
-        if is_enca4:
-            is_dir = struct.unpack('>B', f.read(1))[0] == 1
-            has_pwd = struct.unpack('>B', f.read(1))[0] == 1
-            key_len = struct.unpack('>H', f.read(2))[0]
-            encrypted_aes_key_token = f.read(key_len) if key_len > 0 else b""
-            salt = b""
-            nonce_pwd = b""
-            encrypted_aes_key_pwd = b""
-            if has_pwd:
-                salt = f.read(16)
-                nonce_pwd = f.read(12)
-                pwd_key_len = struct.unpack('>H', f.read(2))[0]
-                encrypted_aes_key_pwd = f.read(pwd_key_len)
-            nonce_file = f.read(12)
-            total_chunks = struct.unpack('>I', f.read(4))[0]
-            aad = None
-        else:
-            if len(encoded_header) < 608:
-                raise Exception("Arquivo corrompido ou não é um cofre válido.")
-            rsc = RSCodec(32)
-            try:
-                header_bytes_decoded = rsc.decode(encoded_header)[0]
-            except Exception:
-                raise Exception("Falha de integridade no cabeçalho (Bit rot irreparável ou não é um cofre Stealth válido).")
-            aad = bytes(header_bytes_decoded)
-            hb = io.BytesIO(header_bytes_decoded)
+        if len(encoded_header) < 608:
+            raise Exception("Arquivo corrompido ou não é um cofre válido.")
+        rsc = RSCodec(32)
+        try:
+            header_bytes_decoded = rsc.decode(encoded_header)[0]
+        except Exception:
+            raise Exception("Falha de integridade no cabeçalho (Bit rot irreparável ou não é um cofre válido).")
             
-            actual_magic = hb.read(5)
-            if is_stealth:
-                if actual_magic == MAGIC_ENCA6:
-                    is_enca6 = True
-                elif actual_magic == MAGIC_ENCA5:
-                    is_enca5 = True
-                else:
-                    if actual_magic[0] in (0, 1) and actual_magic[1] in (0, 1):
-                        is_enca5 = True
-                    else:
-                        is_enca6 = True 
-                        
-            if is_enca6:
-                is_dir = struct.unpack('>B', hb.read(1))[0] == 1
-                has_pwd = struct.unpack('>B', hb.read(1))[0] == 1
-                salt = b""
-                pim = 1
-                nonce_pwd = b""
-                encrypted_keys_pwd = b""
-                if has_pwd:
-                    salt = hb.read(16)
-                    pim = struct.unpack('>H', hb.read(2))[0]
-                    nonce_pwd = hb.read(12)
-                    encrypted_keys_pwd = hb.read(80)
-                else:
-                    hb.read(16+2+12+80)
-                nonce_aes = hb.read(12)
-                nonce_xsalsa = hb.read(24)
-                total_chunks = struct.unpack('>I', hb.read(4))[0]
-                encrypted_keys_token = hb.read(256)
-            elif is_enca5:
-                hb.seek(0)
-                is_dir = struct.unpack('>B', hb.read(1))[0] == 1
-                has_pwd = struct.unpack('>B', hb.read(1))[0] == 1
-                key_len = struct.unpack('>H', hb.read(2))[0]
-                encrypted_aes_key_token = hb.read(key_len) if key_len > 0 else b""
-                salt = b""
-                nonce_pwd = b""
-                encrypted_aes_key_pwd = b""
-                if has_pwd:
-                    salt = hb.read(16)
-                    nonce_pwd = hb.read(12)
-                    pwd_key_len = struct.unpack('>H', hb.read(2))[0]
-                    encrypted_aes_key_pwd = hb.read(pwd_key_len)
-                nonce_file = hb.read(12)
-                total_chunks = struct.unpack('>I', hb.read(4))[0]
+        aad = bytes(header_bytes_decoded)
+        hb = io.BytesIO(header_bytes_decoded)
+        
+        actual_magic = hb.read(5)
+        # Se for stealth, os 5 primeiros bytes são aleatórios (não são MAGIC_ENCA6).
+        # A prova de descriptografia real acontece quando o AESGCM ou o Token conseguem descriptografar a chave mestre.
+                    
+        is_dir = struct.unpack('>B', hb.read(1))[0] == 1
+        has_pwd = struct.unpack('>B', hb.read(1))[0] == 1
+        salt = b""
+        pim = 1
+        nonce_pwd = b""
+        encrypted_keys_pwd = b""
+        
+        if has_pwd:
+            salt = hb.read(16)
+            pim = struct.unpack('>H', hb.read(2))[0]
+            if pim > 100:
+                raise Exception(f"PIM muito alto ({pim}). Possível cofre corrompido ou adulterado para exaustão de CPU.")
+            nonce_pwd = hb.read(12)
+            encrypted_keys_pwd = hb.read(80)
+        else:
+            hb.read(16+2+12+80)
+            
+        nonce_aes = hb.read(12)
+        nonce_xsalsa = hb.read(24)
+        total_chunks = struct.unpack('>I', hb.read(4))[0]
+        encrypted_keys_token = hb.read(256)
 
         aes_key = None
         xsalsa_key = None
         
-        if is_enca6:
-            combined_keys = b''
-            if pin:
-                if not pkcs11_lib:
-                    pkcs11_lib = auto_discover_pkcs11()
-                lib = pkcs11.lib(pkcs11_lib)
+        combined_keys = b''
+        if pin:
+            if not pkcs11_lib:
+                pkcs11_lib = auto_discover_pkcs11()
+            lib = pkcs11.lib(pkcs11_lib)
+            try:
+                token = next(lib.get_tokens())
+            except StopIteration:
+                raise Exception("Nenhum Token A3 detectado. Verifique se ele está conectado na porta USB.")
+            with token.open(user_pin=pin) as session:
+                _, priv_key = _get_keys(session)
                 try:
-                    token = next(lib.get_tokens())
-                except StopIteration:
-                    raise Exception("Nenhum Token A3 detectado. Verifique se ele está conectado na porta USB.")
-                with token.open(user_pin=pin) as session:
-                    _, priv_key = _get_keys(session)
-                    try:
-                        combined_keys = priv_key.decrypt(encrypted_keys_token, mechanism=Mechanism.RSA_PKCS_OAEP)
-                    except:
-                        combined_keys = priv_key.decrypt(encrypted_keys_token, mechanism=Mechanism.RSA_PKCS)
-            elif recovery_password and has_pwd:
-                recovery_password = unicodedata.normalize('NFC', recovery_password)
-                time_cost = 3 * max(1, pim)
-                derived_key = hash_secret_raw(
-                    secret=recovery_password.encode('utf-8'),
-                    salt=salt,
-                    time_cost=time_cost, memory_cost=65536, parallelism=4,
-                    hash_len=32, type=ArgonType.ID
-                )
-                aesgcm_pwd = AESGCM(derived_key)
-                combined_keys = aesgcm_pwd.decrypt(nonce_pwd, encrypted_keys_pwd.rstrip(b'\x00'), MAGIC_ENCA6)
-            else:
-                raise Exception("Nenhum método de decriptação válido fornecido (PIN do Token ou Senha).")
-                
-            aes_key = combined_keys[:32]
-            xsalsa_key = combined_keys[32:64]
-            aesgcm_file = AESGCM(aes_key)
-            box = SecretBox(xsalsa_key)
+                    combined_keys = priv_key.decrypt(encrypted_keys_token, mechanism=Mechanism.RSA_PKCS_OAEP)
+                except (pkcs11.exceptions.MechanismInvalid, pkcs11.exceptions.DataInvalid, pkcs11.exceptions.DeviceError):
+                    import sys
+                    print("Aviso: Token não suporta OAEP, realizando fallback para RSA_PKCS.", file=sys.stderr)
+                    combined_keys = priv_key.decrypt(encrypted_keys_token, mechanism=Mechanism.RSA_PKCS)
+        elif recovery_password and has_pwd:
+            recovery_password = unicodedata.normalize('NFC', recovery_password)
+            time_cost = 3 * max(1, pim)
+            derived_key = hash_secret_raw(
+                secret=recovery_password.encode('utf-8'),
+                salt=salt,
+                time_cost=time_cost, memory_cost=65536, parallelism=4,
+                hash_len=32, type=ArgonType.ID
+            )
+            aesgcm_pwd = AESGCM(derived_key)
+            # A chave encriptada tem 80 bytes exatos (64 bytes de chaves + 16 bytes de tag).
+            # Não é necessário fazer rstrip ou slicing.
+            combined_keys = aesgcm_pwd.decrypt(nonce_pwd, encrypted_keys_pwd, MAGIC_ENCA6)
         else:
-            if pin and encrypted_aes_key_token:
-                if not pkcs11_lib:
-                    pkcs11_lib = auto_discover_pkcs11()
-                lib = pkcs11.lib(pkcs11_lib)
-                try:
-                    token = next(lib.get_tokens())
-                except StopIteration:
-                    raise Exception("Nenhum Token A3 detectado. Verifique se ele está conectado na porta USB.")
-                with token.open(user_pin=pin) as session:
-                    _, priv_key = _get_keys(session)
-                    try:
-                        aes_key = priv_key.decrypt(encrypted_aes_key_token, mechanism=Mechanism.RSA_PKCS_OAEP)
-                    except:
-                        aes_key = priv_key.decrypt(encrypted_aes_key_token, mechanism=Mechanism.RSA_PKCS)
-            elif recovery_password and has_pwd:
-                recovery_password = unicodedata.normalize('NFC', recovery_password)
-                derived_key = hash_secret_raw(
-                    secret=recovery_password.encode('utf-8'),
-                    salt=salt,
-                    time_cost=3, memory_cost=65536, parallelism=4,
-                    hash_len=32, type=ArgonType.ID
-                )
-                aesgcm_pwd = AESGCM(derived_key)
-                aes_key = aesgcm_pwd.decrypt(nonce_pwd, encrypted_aes_key_pwd, None)
-            else:
-                raise Exception("Nenhum método de decriptação válido fornecido (PIN do Token ou Senha).")
-            aesgcm_file = AESGCM(aes_key)
+            raise Exception("Nenhum método de decriptação válido fornecido (PIN do Token ou Senha).")
+            
+        aes_key = combined_keys[:32]
+        xsalsa_key = combined_keys[32:64]
+        aesgcm_file = AESGCM(aes_key)
+        box = SecretBox(xsalsa_key)
         
         base_name = os.path.basename(input_path).replace('.ea3', '')
         if is_stealth and not input_path.endswith('.ea3'): 
@@ -395,16 +332,14 @@ def decrypt_path(input_path: str, output_dir: str, pkcs11_lib: str = None, pin: 
                 chunk_len = struct.unpack('>I', len_bytes)[0]
                 enc_chunk = f.read(chunk_len)
                 
-                if is_enca6:
-                    n_aes = get_nonce(nonce_aes, chunk_idx, 12)
-                    n_xs = get_nonce(nonce_xsalsa, chunk_idx, 24)
-                    c1 = box.decrypt(enc_chunk, n_xs)
-                    plaintext_chunk = aesgcm_file.decrypt(n_aes, c1, aad)
-                else:
-                    current_nonce = nonce_file[:8] + struct.pack('>I', chunk_idx)
-                    plaintext_chunk = aesgcm_file.decrypt(current_nonce, enc_chunk, aad if is_enca5 else None)
+                n_aes = get_nonce(nonce_aes, chunk_idx, 12)
+                n_xs = get_nonce(nonce_xsalsa, chunk_idx, 24)
+                c1 = box.decrypt(enc_chunk, n_xs)
+                plaintext_chunk = aesgcm_file.decrypt(n_aes, c1, aad)
 
                 f_out.write(plaintext_chunk)
+                if progress_callback and total_chunks > 0:
+                    progress_callback((chunk_idx + 1) / total_chunks)
                     
     if is_dir and temp_out:
         out_folder = os.path.join(output_dir, base_name)
@@ -422,7 +357,7 @@ def is_vault(filepath: str) -> bool:
     try:
         with open(filepath, 'rb') as f:
             magic = f.read(5)
-            if magic in (MAGIC, MAGIC_ENCA5, MAGIC_ENCA6):
+            if magic == MAGIC_ENCA6:
                 return True
             
             f.seek(0)

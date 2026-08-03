@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=EncryptA3
+Comment=Ferramenta de Criptografia com Token A3
+Exec=python3 -m encrypta3.gui.app
+Icon=dialog-password
+Terminal=false
+Type=Application
+Categories=Utility;Security;
+StartupNotify=true
