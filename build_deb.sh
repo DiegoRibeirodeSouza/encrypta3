@@ -6,7 +6,7 @@ set -e
 echo "=> Iniciando empacotamento Debian para o EncryptA3..."
 
 PKG_NAME="encrypta3"
-PKG_VERSION="1.0"
+PKG_VERSION="1.2"
 PKG_ARCH="all"
 PKG_DIR="${PKG_NAME}_${PKG_VERSION}_${PKG_ARCH}"
 
@@ -55,7 +55,7 @@ set -e
 echo "=> Configurando o ambiente do EncryptA3..."
 
 # Cria ambiente virtual em /opt/encrypta3/venv
-python3 -m venv /opt/encrypta3/venv
+python3 -m venv --system-site-packages /opt/encrypta3/venv
 
 # Atualiza o PIP e instala as dependências
 /opt/encrypta3/venv/bin/pip install --upgrade pip
@@ -90,9 +90,9 @@ cat <<'EOF' > "$PKG_DIR/usr/share/applications/encrypta3.desktop"
 [Desktop Entry]
 Name=EncryptA3 (Cofre A3)
 Comment=Tranque e destranque arquivos com seu Token A3 ou Senha
-Exec=encrypta3
+Exec=/opt/encrypta3/venv/bin/python3 -m encrypta3.gui.app
 Icon=encrypta3
-Terminal=true
+Terminal=false
 Type=Application
 Categories=Utility;Security;
 EOF
